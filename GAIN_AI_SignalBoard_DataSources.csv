@@ -1,0 +1,14 @@
+Metric ID,Metric Name,Description,Example Value,Data Source / Link,Last Updated,Refresh Cycle,Status,Notes
+1,Governance Index,# of national AI policies with human-in-the-loop principles,930 initiatives / 71 jurisdictions,https://oecd.ai/en/wonk/national-policies-2,2023-05,Quarterly,✅,Direct API available
+2,AI Incident Reports,# of documented AI-related incidents or failures,"1,200 reports",https://partnershiponai.org/workstream/ai-incidents-database/,2024-01,Monthly,✅,Pull via AIID open dataset
+3,Governance Adoption (OECD Principles),# of jurisdictions adopting OECD AI principles,47 countries + EU,https://oecd.org/content/dam/oecd/en/events/2025/06/mcm/MCM-2025-Scoping-Note-for-an-AI-Policy-Toolkit-to-Support-Economies-in-Realising-AI-Benefits.pdf,2025-06,Annual,✅,Official member registry
+4,AI Incident Time Series,Year-over-year number of AI incidents reported,2012–2024 data series,https://ourworldindata.org/grapher/annual-reported-ai-incidents-controversies,2024-04,Quarterly,✅,Fetch from OWID API
+5,Open-Access Model Evaluations,% of top-tier models with public eval data or weights,45%,https://huggingface.co/models,2025-03,Quarterly,⚠️,Derived metric from public repos
+6,Compute Market Concentration,"Market share of top 3 compute providers (AWS, Azure, GCP)",82%,https://www.statista.com/statistics/515889/public-cloud-market-share-by-vendor-worldwide/,2024-12,Annual,⚠️,Manual or proxy update
+7,AI Training Energy Footprint,Average kWh per large-scale model training run,1.5M kWh,https://arxiv.org/abs/1906.02243,2024-07,Annual,⚠️,Derived from corporate ESG reports
+8,Public Trust Index,Global average trust in AI (survey data),61%,https://www.ipsos.com/en/global-trust-ai-2023,2023-12,Annual,⚠️,Manual survey aggregation
+9,Safety Research Investment,Annual funding to AI safety / alignment projects,$410M,https://aisafetyfunds.org/,2024-03,Annual,⚠️,Estimated; partial dataset
+10,BCI Adoption Count,# of active brain-computer interface trials worldwide,37,https://clinicaltrials.gov/ct2/results?cond=Brain-Computer+Interface,2025-04,Quarterly,⚠️,Manual extraction
+11,Open Research Ratio,Ratio of open-access to closed AI papers per year,78%,https://arxiv.org/,2025-05,Quarterly,⚠️,Proxy metric using arXiv vs. proprietary releases
+12,Energy Efficiency Improvement,% change in compute efficiency year-over-year,+11%,https://mlcommons.org/en/,2025-02,Annual,⚠️,Derived from MLCommons benchmarks
+13,AI Policy Live Repository Size,# of AI policies in OECD live repository,"1,000+",https://oecd.ai/en/dashboards/overview,2025-01,Quarterly,✅,Dynamic; auto-refresh via API

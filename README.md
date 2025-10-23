@@ -1,19 +1,75 @@
-# AI Signal Board — Starter Kit (GAIN)
 
-This starter includes **both** live web retrieval and an **offline reproducible** workflow.
+# GAIN Signal Board
 
-## Quick Start
+**Live governance signals for your repos and deployments.**  
+_Because the mind of Earth must stay human._
+
+## 🚀 Live Mode (default)
+
+This Streamlit app pulls **live metrics** without any local CSVs:
+
+- GitHub repo snapshot: stars, forks, open issues, latest commit
+- Commit activity (last ~100 commits)
+- Deployed Streamlit app health check (status + latency)
+
+### Configure Targets
+
+You can set targets via **environment variables**, **`st.secrets`**, or the **sidebar**.
+
+- `GITHUB_OWNER` (default: `Rusty92109`)
+- `GITHUB_REPO` (default: `GAIN_SignalBoard_starter`)
+- `STREAMLIT_APP_URL` (default: `https://gainsignalboardstarter.streamlit.app/`)
+- `GITHUB_TOKEN` *(optional)* — increases GitHub API rate limits
+
+Create `.streamlit/secrets.toml` (locally and on Streamlit Cloud) to persist:
+```toml
+GITHUB_OWNER = "Rusty92109"
+GITHUB_REPO = "GAIN_SignalBoard_starter"
+STREAMLIT_APP_URL = "https://gainsignalboardstarter.streamlit.app/"
+# GITHUB_TOKEN = "ghp_***"  # optional
+```
+
+## 📦 Offline Mode (CSV)
+
+If you flip **Live mode** off in the sidebar, the app will look for a local `latest_metrics.csv`
+(or you can upload one in-app). Columns are free-form — the table renders whatever you provide.
+
+## 🛠️ Local Dev
+
 ```bash
-pip install streamlit pandas requests beautifulsoup4 lxml
-python scripts/gain_collect_live.py        # live web retrieval (requires internet)
-# or
-python scripts/gain_collect_offline.py     # uses ./data CSVs you edit manually
+# 1) Create and activate a venv (optional)
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# 2) Install deps
+pip install -r requirements.txt
+
+# 3) Run
 streamlit run streamlit_app.py
 ```
 
-## Data CSV schema
-Each file in `./data`: `date,value,unit,source,notes`
+## 📁 Repo Layout
 
-Metrics and sources: OECD.AI (governance), Open LLM Leaderboard (openness), AI Incident Database (incidents), SIPRI (militarization), ESG/MLCO2 (energy), Ipsos/Pew (trust).
+```
+GAIN_SignalBoard_starter/
+├── streamlit_app.py
+├── requirements.txt
+├── README.md
+├── .streamlit/
+│   ├── config.toml        # theme (dark navy + white)
+│   └── secrets.toml       # optional (not tracked by git)
+└── assets/
+    └── (logo optional)
+```
 
-Tagline: *Because the mind of Earth must stay human.*
+## 🎨 Theme
+
+Dark navy + white applied via `.streamlit/config.toml`.
+
+## 🔗 Live App
+
+Set `STREAMLIT_APP_URL` to your deployed Streamlit app. Default points to the starter app.
+
+---
+
+Built with ❤️ by EngiPrompt Labs.

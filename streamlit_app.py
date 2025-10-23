@@ -1,201 +1,206 @@
-# --- imports
-import os, sys, subprocess, time
-import datetime as dt
-from pathlib import Path
+
+import os
+import time
+import json
+import math
+from datetime import datetime, timezone
+from typing import Dict, Any, List
+
+import requests
 import pandas as pd
+import pytz
 import streamlit as st
 
-# --- paths
-ROOT = Path(__file__).resolve().parent
-LIVE = ROOT / "data" / "latest_metrics.csv"
-OFFLINE = ROOT / "data" / "latest_metrics_offline.csv"
-LIVE_SCRIPT = ROOT / "scripts" / "gain_collect_live.py"
-OFFLINE_SCRIPT = ROOT / "scripts" / "gain_collect_offline.py"
+APP_TITLE = "GAIN Signal Board"
+TAGLINE = "Because the mind of Earth must stay human."
+TZ = os.getenv("APP_TZ", "America/Los_Angeles")
 
-# --- app setup
-st.set_page_config(page_title="AI Signal Board", page_icon="🌐", layout="wide")
-st.title("AI SIGNAL BOARD")
-st.caption("Monitoring AI Governance, Safety, and Societal Indicators")
+# ---------- Configurable targets (override via environment variables or st.secrets)
+GITHUB_OWNER = os.getenv("GITHUB_OWNER", st.secrets.get("GITHUB_OWNER", "Rusty92109"))
+GITHUB_REPO  = os.getenv("GITHUB_REPO",  st.secrets.get("GITHUB_REPO",  "GAIN_SignalBoard_starter"))
+STREAMLIT_APP_URL = os.getenv("STREAMLIT_APP_URL", st.secrets.get("STREAMLIT_APP_URL", "https://gainsignalboardstarter.streamlit.app/"))
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", st.secrets.get("GITHUB_TOKEN", None))  # optional for higher rate limits
 
-# --- helpers
+# ---------- Helpers
+def now_local() -> datetime:
+    try:
+        tz = pytz.timezone(TZ)
+        return datetime.now(tz)
+    except Exception:
+        return datetime.now(timezone.utc)
+
+def humanize_dt(dt: datetime) -> str:
+    try:
+        local = dt.astimezone(pytz.timezone(TZ))
+    except Exception:
+        local = dt
+    return local.strftime("%Y-%m-%d %H:%M:%S %Z")
+
+def http_json(url: str, params: Dict[str, Any] = None, headers: Dict[str, str] = None, timeout: int = 15):
+    h = {"Accept": "application/vnd.github+json"}
+    if headers:
+        h.update(headers)
+    if GITHUB_TOKEN and "api.github.com" in url:
+        h["Authorization"] = f"Bearer {GITHUB_TOKEN}"
+    r = requests.get(url, params=params, headers=h, timeout=timeout)
+    r.raise_for_status()
+    return r.json(), r.elapsed.total_seconds()
+
 @st.cache_data(ttl=60)
-def load_metrics(p: Path) -> pd.DataFrame | None:
-    if not p.exists():
-        return None
-    df = pd.read_csv(p)
-    # normalize numeric strings if it's already wide
-    for col in ["governance_index", "openness_score", "incident_count"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(
-                df[col].astype(str).str.replace("%", "", regex=False).str.replace(",", "", regex=False),
-                errors="coerce"
-            )
-    return df
+def fetch_repo_stats(owner: str, repo: str) -> Dict[str, Any]:
+    data, latency = http_json(f"https://api.github.com/repos/{owner}/{repo}")
+    last_commit, _ = http_json(f"https://api.github.com/repos/{owner}/{repo}/commits", params={"per_page": 1})
+    commit = last_commit[0] if isinstance(last_commit, list) and last_commit else {}
+    stats = {
+        "repo_full_name": data.get("full_name"),
+        "default_branch": data.get("default_branch"),
+        "stars": data.get("stargazers_count"),
+        "forks": data.get("forks_count"),
+        "watchers": data.get("subscribers_count"),
+        "open_issues": data.get("open_issues_count"),
+        "license": (data.get("license") or {}).get("spdx_id"),
+        "repo_api_latency_s": round(latency, 3),
+        "latest_commit_sha": commit.get("sha"),
+        "latest_commit_message": (commit.get("commit") or {}).get("message"),
+        "latest_commit_author": ((commit.get("commit") or {}).get("author") or {}).get("name"),
+        "latest_commit_datetime": (commit.get("commit") or {}).get("author", {}).get("date"),
+        "repo_html_url": data.get("html_url"),
+    }
+    return stats
 
-def file_timestamp(path: Path):
-    try:
-        ts = os.path.getmtime(path)
-        return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
-    except Exception:
-        return "—"
-
-def fmt(v):
-    try:
-        x = float(v)
-        if x >= 1_000_000: return f"{x/1_000_000:.1f}M"
-        if x >= 1_000:     return f"{x/1_000:.1f}k"
-        if float(x).is_integer(): return str(int(x))
-        return str(x)
-    except Exception:
-        return str(v)
-
-def humanize_secs(s: float) -> str:
-    s = max(0, int(s))
-    if s < 60: return f"{s}s ago"
-    m, s = divmod(s, 60)
-    if m < 60: return f"{m}m {s}s ago"
-    h, m = divmod(m, 60)
-    return f"{h}h {m}m ago"
-
-def last_write_ago(path: Path) -> str:
-    try:
-        return humanize_secs(time.time() - os.path.getmtime(path))
-    except Exception:
-        return "—"
-
-def mark_status(path: Path, label: str):
-    ts = file_timestamp(path)
-    st.markdown(
-        f"""
-        <div style="display:inline-block;padding:6px 10px;border-radius:999px;
-                    background:#1b3654;color:#fff;border:1px solid #2c5a8a;
-                    font-size:12px;">
-            <b>Data source:</b> {label} &nbsp; • &nbsp; <b>Last write:</b> {ts}
-        </div>
-        """,
-        unsafe_allow_html=True
+@st.cache_data(ttl=60)
+def fetch_commit_history(owner: str, repo: str, per_page: int = 100) -> pd.DataFrame:
+    commits, _ = http_json(
+        f"https://api.github.com/repos/{owner}/{repo}/commits",
+        params={"per_page": per_page},
     )
+    rows = []
+    for c in commits:
+        dt = ((c.get("commit") or {}).get("author") or {}).get("date")
+        if not dt:
+            continue
+        rows.append({"datetime": pd.to_datetime(dt), "sha": c.get("sha")})
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    df["date"] = df["datetime"].dt.tz_convert(TZ) if df["datetime"].dt.tz is not None else df["datetime"].dt.tz_localize("UTC").dt.tz_convert(TZ)
+    df["date"] = df["date"].dt.date
+    daily = df.groupby("date").size().reset_index(name="commits")
+    return daily
 
-def run_script(path: Path, cwd: Path):
+@st.cache_data(ttl=60)
+def ping_url(url: str, timeout: int = 10) -> Dict[str, Any]:
     try:
-        proc = subprocess.run([sys.executable, str(path)], capture_output=True, text=True, cwd=str(cwd))
-        return proc.returncode == 0, proc.stdout.strip(), proc.stderr.strip()
+        r = requests.get(url, timeout=timeout)
+        return {
+            "status_code": r.status_code,
+            "ok": r.ok,
+            "latency_s": round(r.elapsed.total_seconds(), 3),
+            "url": url,
+        }
     except Exception as e:
-        return False, "", str(e)
+        return {"status_code": None, "ok": False, "latency_s": None, "url": url, "error": str(e)}
 
-# --- sidebar controls
-with st.sidebar:
-    st.subheader("Data Controls")
-    refresh_live = st.button("🔄 Refresh Live Data", use_container_width=True)
-    use_offline  = st.button("📁 Use Offline Data", use_container_width=True)
-    auto_refresh = st.toggle("⏱ Auto-refresh every 30s", value=False, help="Reruns the app every 30 seconds")
-    force_offline = st.checkbox("Force OFFLINE source", value=False, help="Ignore LIVE data even if it exists")
-    st.caption("Live refresh runs the script in /scripts and updates /data/latest_metrics.csv")
+def render_header():
+    col1, col2 = st.columns([0.85, 0.15])
+    with col1:
+        st.title(APP_TITLE)
+        st.caption(TAGLINE)
+    with col2:
+        st.markdown("")
+        st.markdown("**Owner**")
+        st.code(f"{GITHUB_OWNER}/{GITHUB_REPO}", language="text")
 
-log_expander = st.expander("Show refresh logs", expanded=False)
-status = st.empty()
+def render_status_cards(stats: Dict[str, Any], ping: Dict[str, Any]):
+    a, b, c, d = st.columns(4)
+    a.metric("⭐ Stars", stats.get("stars"))
+    b.metric("🍴 Forks", stats.get("forks"))
+    c.metric("🐛 Open issues", stats.get("open_issues"))
+    d.metric("🕒 Repo API (s)", stats.get("repo_api_latency_s"))
 
-# --- actions
-if refresh_live:
-    if LIVE_SCRIPT.exists():
-        ok, out, err = run_script(LIVE_SCRIPT, ROOT)
-        log_expander.code(out or "(no stdout)")
-        if err: log_expander.code(err)
-        if ok and LIVE.exists():
-            st.toast("Live data refreshed ✅", icon="✅")
-            st.rerun()
-        else:
-            status.error("Live refresh failed. Falling back to offline data if available.")
-    else:
-        status.error("Live script not found: scripts/gain_collect_live.py")
+    a, b, c = st.columns(3)
+    b.metric("📶 App reachable", "✅" if ping.get("ok") else "❌")
+    a.metric("🔗 App status", ping.get("status_code"))
+    c.metric("⚡ App latency (s)", ping.get("latency_s"))
 
-if use_offline:
-    if OFFLINE_SCRIPT.exists():
-        run_script(OFFLINE_SCRIPT, ROOT)  # bump timestamp
-    if OFFLINE.exists():
-        st.toast("Offline data selected 📁", icon="📁")
-        if LIVE.exists():
-            LIVE.unlink(missing_ok=True)   # force fallback to offline
-        st.rerun()
-    else:
-        status.error("Offline file missing: data/latest_metrics_offline.csv")
+def render_repo_table(stats: Dict[str, Any]):
+    dt = stats.get("latest_commit_datetime")
+    dt_fmt = humanize_dt(pd.to_datetime(dt, utc=True)) if dt else "—"
+    rows = [{
+        "Repo": stats.get("repo_full_name"),
+        "Default branch": stats.get("default_branch"),
+        "License": stats.get("license"),
+        "Latest commit": stats.get("latest_commit_sha"),
+        "Commit author": stats.get("latest_commit_author"),
+        "Commit time": dt_fmt,
+        "Commit msg": stats.get("latest_commit_message"),
+        "Repo URL": stats.get("repo_html_url"),
+    }]
+    df = pd.DataFrame(rows)
+    st.dataframe(df, use_container_width=True, hide_index=True)
 
-# --- choose & load data (prefer LIVE)
-data_path = OFFLINE if force_offline else (LIVE if LIVE.exists() else OFFLINE)
-if not data_path.exists():
-    st.warning("No metrics file found. Click **📁 Use Offline Data** or **🔄 Refresh Live Data**.")
-    st.stop()
-
-label = "LIVE (data/latest_metrics.csv)" if data_path == LIVE else "OFFLINE (data/latest_metrics_offline.csv)"
-mark_status(data_path, label)
-if force_offline:
-    st.caption("**Source override:** OFFLINE (forced)")
-st.caption(f"Last updated: { last_write_ago(data_path) }")
-
-df = load_metrics(data_path)
-if df is None or df.empty:
-    st.warning("No data found in the selected source.")
-    st.stop()
-
-# --- make a long (metric,value) view for cards regardless of input shape
-if {"metric", "value"}.issubset(df.columns):
-    df_long = df.copy()
-else:
-    # convert wide -> long for known metrics
-    known_cols = [c for c in ["governance_index", "openness_score", "incident_count"] if c in df.columns]
-    df_long = (
-        df[known_cols]
-        .iloc[:1]  # first row as the snapshot
-        .melt(var_name="metric", value_name="value")
-        .dropna(subset=["metric"])
+def render_commits_chart(daily: pd.DataFrame):
+    if daily.empty:
+        st.info("No commit history found to plot yet.")
+        return
+    st.bar_chart(
+        data=daily.set_index("date")["commits"],
+        height=200,
+        use_container_width=True,
     )
 
-# --- headline three metrics
-wide_map = dict(zip(df_long["metric"], pd.to_numeric(df_long["value"], errors="coerce")))
-gov = wide_map.get("governance_index")
-opn = wide_map.get("openness_score")
-inc = wide_map.get("incident_count")
+def load_offline_csv() -> pd.DataFrame:
+    for name in ["latest_metrics.csv", "data/latest_metrics.csv"]:
+        if os.path.exists(name):
+            try:
+                df = pd.read_csv(name)
+                return df
+            except Exception as e:
+                st.warning(f"Found {name} but could not read it: {e}")
+    return pd.DataFrame()
 
-st.metric("Governance Index", f"{gov:.2f}" if pd.notna(gov) else "—")
-st.metric("Openness Score", f"{opn:.2f}" if pd.notna(opn) else "—")
-st.metric("Incident Log", int(inc) if pd.notna(inc) else 0)
+def render_offline_table(df: pd.DataFrame):
+    if df.empty:
+        st.warning("Offline mode selected but no `latest_metrics.csv` was found. Upload one in the sidebar or place it in the repo root.")
+        uploaded = st.file_uploader("Upload latest_metrics.csv", type=["csv"], key="upload_csv")
+        if uploaded is not None:
+            df = pd.read_csv(uploaded)
+    if not df.empty:
+        st.subheader("Offline Metrics (from CSV)")
+        st.dataframe(df, use_container_width=True, hide_index=True)
 
-# --- ensure timestamp column for footer
-if "timestamp" not in df.columns:
-    df["timestamp"] = dt.date.today().isoformat()
+# ---------- UI
+st.set_page_config(page_title=APP_TITLE, page_icon="📡", layout="wide")
 
-# --- deltas vs previous run (using long view to be consistent)
-if "prev_df_long" not in st.session_state:
-    st.session_state.prev_df_long = None
-prev_long = st.session_state.prev_df_long
-st.session_state.prev_df_long = df_long.copy()
+with st.sidebar:
+    st.header("Controls")
+    live_mode = st.toggle("Live mode", value=True, help="When enabled, fetch live metrics from GitHub + ping the Streamlit app URL.")
+    st.divider()
+    st.markdown("**Targets**")
+    GITHUB_OWNER = st.text_input("GitHub owner", value=GITHUB_OWNER)
+    GITHUB_REPO  = st.text_input("GitHub repo", value=GITHUB_REPO)
+    STREAMLIT_APP_URL = st.text_input("Deployed app URL", value=STREAMLIT_APP_URL)
+    st.caption("Tip: set secrets for stable defaults.")
 
-prev_map = {}
-if prev_long is not None and {"metric", "value"}.issubset(prev_long.columns):
-    for _, r in prev_long.iterrows():
-        prev_map[r["metric"]] = r["value"]
+render_header()
+st.markdown("---")
 
-# --- headline cards from long view
-st.divider()
-top = df_long.drop_duplicates(subset=["metric"]).head(5)
-cols = st.columns(len(top) if len(top) else 1)
-for c, (_, row) in zip(cols, top.iterrows()):
-    old = prev_map.get(row["metric"])
+if live_mode:
     try:
-        delta = None
-        if old not in (None, "") and str(row["value"]) != "":
-            delta = float(row["value"]) - float(old)
-    except Exception:
-        delta = None
-    c.metric(row["metric"], fmt(row["value"]), delta=delta)
+        stats = fetch_repo_stats(GITHUB_OWNER, GITHUB_REPO)
+        ping = ping_url(STREAMLIT_APP_URL)
+        render_status_cards(stats, ping)
+        st.subheader("Repository Snapshot")
+        render_repo_table(stats)
 
-# --- download + footer
-csv_bytes = df.to_csv(index=False).encode("utf-8")
-st.download_button("Download current data (CSV)", data=csv_bytes, file_name=data_path.name, mime="text/csv")
-st.caption(f"Showing: {data_path.name}  •  Last updated (timestamp column): {df['timestamp'].max()}")
-st.caption("GAIN — Building systems where truth precedes control, and intelligence remains human-aligned.")
+        st.subheader("Commit Activity (last ~100 commits)")
+        daily = fetch_commit_history(GITHUB_OWNER, GITHUB_REPO, per_page=100)
+        render_commits_chart(daily)
+    except Exception as e:
+        st.error(f"Live mode failed: {e}")
+else:
+    df = load_offline_csv()
+    render_offline_table(df)
 
-# --- optional auto-refresh
-if auto_refresh:
-    time.sleep(30)
-    st.rerun()
+st.markdown("---")
+st.caption(f"Last refreshed: {humanize_dt(now_local())} • Built by EngiPrompt Labs")
