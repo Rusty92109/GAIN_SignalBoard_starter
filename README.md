@@ -73,3 +73,18 @@ Set `STREAMLIT_APP_URL` to your deployed Streamlit app. Default points to the st
 ---
 
 Built with ❤️ by EngiPrompt Labs.
+
+
+## 🧩 Google Sheets / CSV Integration
+
+You can display any Google Sheet by pasting its link in the sidebar. Two options:
+
+**A) Publish to the web (CSV)**
+- Sheets → File → Share → *Publish to the web* → Select the worksheet → CSV
+- Copy the link and paste into the app
+
+**B) Manual CSV export link**
+- From a link like: `https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit#gid=GID`
+- Convert to: `https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/export?format=csv&gid=GID`
+
+You can also use any plain CSV URL or upload a CSV directly in the sidebar.
