@@ -47,3 +47,19 @@ Use whatever columns you like. If you include a column named `Status`, the app w
 ---
 
 Built by EngiPrompt Labs.
+
+
+## 🔄 Auto-update
+- The app **auto-refreshes** every 60s by default (configurable in the sidebar).
+- For *truly live* data without redeploys, use a **Google Sheets link** or any **CSV URL** in the sidebar (or set `SHEETS_CSV_URL` in secrets).  
+  - Google Sheets → *File → Share → Publish to the web → CSV* (copy the link).  
+  - Or convert your normal Sheets link to `.../export?format=csv&gid=...`.
+
+> If you keep the data in a local repo CSV, it updates only when the file changes **on disk**. On Streamlit Cloud, that usually means a new commit or using a URL to a raw CSV instead of a bundled file.
+
+### Optional: GitHub Raw CSV (live from your repo)
+Paste a URL like:
+
+`https://raw.githubusercontent.com/Rusty92109/GAIN_SignalBoard_starter/main/GAIN_AI_SignalBoard_DataSources.csv`
+
+into the sidebar field to fetch the latest file without redeploy.
